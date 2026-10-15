@@ -56,17 +56,34 @@ export type NgOrchestratorOptions = {
 
 export type NgNFOptions = NgOrchestratorOptions & NFOptions;
 
-let resolveFirstInit!: (
-  value: NativeFederationResult | PromiseLike<NativeFederationResult>,
-) => void;
-let rejectFirstInit!: (reason?: unknown) => void;
-let firstInitCaptured = false;
-let federationPromise: Promise<NativeFederationResult> = new Promise(
-  (resolve, reject) => {
-    resolveFirstInit = resolve;
-    rejectFirstInit = reject;
-  },
-);
+type AdapterState = {
+  federationPromise: Promise<NativeFederationResult>;
+  resolveFirstInit: (
+    value: NativeFederationResult | PromiseLike<NativeFederationResult>,
+  ) => void;
+  rejectFirstInit: (reason?: unknown) => void;
+  firstInitCaptured: boolean;
+};
+
+// This package is on Angular's skip list, so the host and every remote bundle
+// their own copy of it. Only the host calls `initFederation`, so the init state
+// has to live on `globalThis`; otherwise a remote's `loadRemoteModule` waits
+// forever on a promise that only the host's copy resolves.
+const STATE_KEY = "__NATIVE_FEDERATION_ADAPTER_STATE__";
+
+function createState(): AdapterState {
+  const state = { firstInitCaptured: false } as AdapterState;
+  state.federationPromise = new Promise((resolve, reject) => {
+    state.resolveFirstInit = resolve;
+    state.rejectFirstInit = reject;
+  });
+  return state;
+}
+
+const globalScope = globalThis as typeof globalThis & {
+  [STATE_KEY]?: AdapterState;
+};
+const state = (globalScope[STATE_KEY] ??= createState());
 
 export function initFederation(
   remotesOrManifestUrl?: FederationManifest | string,
@@ -87,11 +104,11 @@ export function initFederation(
     hostRemoteEntry: { url: "./remoteEntry.json", cacheTag },
     ...nfOpts,
   });
-  if (!firstInitCaptured) {
-    firstInitCaptured = true;
-    p.then(resolveFirstInit, rejectFirstInit);
+  if (!state.firstInitCaptured) {
+    state.firstInitCaptured = true;
+    p.then(state.resolveFirstInit, state.rejectFirstInit);
   }
-  federationPromise = p;
+  state.federationPromise = p;
   return p;
 }
 
@@ -179,7 +196,7 @@ export async function loadRemoteModule<T = any>(
   const { fallback } = options;
 
   try {
-    let federation = await federationPromise;
+    let federation = await state.federationPromise;
 
     if (!options.remoteName && options.remoteEntry) {
       options.remoteName = await resolveRemoteNameFromEntry(

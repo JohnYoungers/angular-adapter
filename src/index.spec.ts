@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const STATE_KEY = '__NATIVE_FEDERATION_ADAPTER_STATE__';
+
 const mockInitFederation = vi.fn();
 const mockUseShimImportMap = vi.fn();
 const mockUseDefaultImportMap = vi.fn();
@@ -22,6 +24,7 @@ vi.mock('@softarc/native-federation-orchestrator/options', () => ({
 describe('initFederation', () => {
   beforeEach(() => {
     vi.resetModules();
+    delete (globalThis as Record<string, unknown>)[STATE_KEY];
     mockInitFederation.mockReset();
     mockUseShimImportMap.mockReset();
     mockUseDefaultImportMap.mockReset();
@@ -111,5 +114,34 @@ describe('initFederation', () => {
 
     expect(mockUseShimImportMap).toHaveBeenCalledWith({ shimMode: true });
     expect(mockUseDefaultImportMap).not.toHaveBeenCalled();
+  });
+});
+
+describe('loadRemoteModule across bundles', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    delete (globalThis as Record<string, unknown>)[STATE_KEY];
+    mockInitFederation.mockReset();
+    mockUseShimImportMap.mockReset();
+    mockUseShimImportMap.mockReturnValue({});
+  });
+
+  it('resolves in a second copy of the module that never called initFederation', async () => {
+    const loadRemoteModule = vi.fn().mockResolvedValue({ ok: true });
+    mockInitFederation.mockReturnValue(Promise.resolve({ loadRemoteModule }));
+
+    // host bundle
+    const host = await import('./index.js');
+    // remote bundle: separate module instance, as with Angular's skip list
+    vi.resetModules();
+    const remote = await import('./index.js');
+    expect(remote).not.toBe(host);
+
+    host.initFederation({});
+
+    await expect(
+      remote.loadRemoteModule('remote-b', './Component'),
+    ).resolves.toEqual({ ok: true });
+    expect(loadRemoteModule).toHaveBeenCalledWith('remote-b', './Component');
   });
 });
