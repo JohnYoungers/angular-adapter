@@ -1,4 +1,4 @@
-import { withNativeFederation, fromPackageJson, autoShareScope, mappingsFromWorkspace } from '@angular-architects/native-federation/config';
+import { withNativeFederation, fromPackageJson } from '@angular-architects/native-federation/config';
 
 export default withNativeFederation({
   name: '<%=project%>',
