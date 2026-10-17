@@ -31,6 +31,7 @@ import {
 import { createAngularBuildAdapter } from '../../tools/esbuild/angular-esbuild-adapter.js';
 import { withDiskCaseWorkspaceRoot } from '../../utils/disk-case.js';
 import { checkForInvalidImports } from '../../utils/check-for-invalid-imports.js';
+import { warnFlatExternals } from '../../utils/warn-flat-externals.js';
 import { federationSourceFiles } from '../../utils/federation-source-files.js';
 
 import type { NfRemoteBuilderSchema, NfRemoteInternalOptions } from './schema.js';
@@ -110,6 +111,7 @@ export async function* runRemoteBuilder(
   // Mapped paths are checked by core's normalizeFederationOptions, which sees the
   // pruned/glob-expanded set and skips paths that were never going to be published.
   checkForInvalidImports(Object.keys(normalized.config.shared), 'externals');
+  warnFlatExternals(normalized.config);
 
   const start = process.hrtime();
   logger.measure(start, 'To load the federation config.');

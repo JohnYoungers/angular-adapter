@@ -49,6 +49,7 @@ import { type PluginBuild } from "esbuild";
 import { devHostInstancesPlugin } from "../../plugin/dev-host-instances-plugin.js";
 import { withDiskCaseWorkspaceRoot } from "./../../utils/disk-case.js";
 import { checkForInvalidImports } from "./../../utils/check-for-invalid-imports.js";
+import { warnFlatExternals } from "./../../utils/warn-flat-externals.js";
 import { federationSourceFiles } from "./../../utils/federation-source-files.js";
 import { watchpackWatch } from "./../../utils/watchpack-watch.js";
 import { federationBuildNotifier } from "./federation-build-notifier.js";
@@ -282,6 +283,7 @@ export async function* runBuilder(
   // Mapped paths are checked by core's normalizeFederationOptions, which sees the
   // pruned/glob-expanded set and skips paths that were never going to be published.
   checkForInvalidImports(Object.keys(normalized.config.shared), "externals");
+  warnFlatExternals(normalized.config);
 
   const activateSsr = nfBuilderOptions.ssr && !nfBuilderOptions.dev;
 
