@@ -22,7 +22,6 @@ import {
   setLogLevel,
   RebuildQueue,
   AbortedError,
-  getDefaultCachePath,
   syncNfFileWatcher,
   linkedSharedDirs,
   sharedMappingDirs,
@@ -33,6 +32,7 @@ import { withDiskCaseWorkspaceRoot } from '../../utils/disk-case.js';
 import { checkForInvalidImports } from '../../utils/check-for-invalid-imports.js';
 import { warnFlatExternals } from '../../utils/warn-flat-externals.js';
 import { federationSourceFiles } from '../../utils/federation-source-files.js';
+import { resolveCachePath } from '../../utils/resolve-cache-path.js';
 
 import type { NfRemoteBuilderSchema, NfRemoteInternalOptions } from './schema.js';
 import { resolveNgBuilderOptions } from './resolve-ng-options.js';
@@ -89,7 +89,7 @@ export async function* runRemoteBuilder(
   setBuildAdapter(adapter);
   setLogLevel(nfBuilderOptions.verbose ? 'verbose' : 'info');
 
-  const cachePath = getDefaultCachePath(context.workspaceRoot);
+  const cachePath = resolveCachePath(context.workspaceRoot, nfBuilderOptions.cachePath);
 
   const normalized = await normalizeFederationOptions(
     {
