@@ -13,6 +13,7 @@ export interface NfRemoteBuilderSchema extends JsonObject {
   verbose?: boolean;
   entryPoints?: string[];
   cacheExternalArtifacts?: boolean;
+  cachePath?: string;
 
   // Passthroughs to the Angular esbuild pipeline / asset copier.
   assets?: ApplicationBuilderOptions['assets'];

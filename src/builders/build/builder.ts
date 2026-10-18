@@ -36,7 +36,6 @@ import {
 import {
   AbortedError,
   createNfWatcher,
-  getDefaultCachePath,
   linkedSharedDirs,
   logger,
   type NfFileWatcher,
@@ -52,6 +51,7 @@ import { checkForInvalidImports } from "./../../utils/check-for-invalid-imports.
 import { warnFlatExternals } from "./../../utils/warn-flat-externals.js";
 import { federationSourceFiles } from "./../../utils/federation-source-files.js";
 import { watchpackWatch } from "./../../utils/watchpack-watch.js";
+import { resolveCachePath } from "./../../utils/resolve-cache-path.js";
 import { federationBuildNotifier } from "./federation-build-notifier.js";
 import {
   createFederationFreshness,
@@ -256,7 +256,7 @@ export async function* runBuilder(
         i18n ? getLocaleSubPath(i18n, localeFilter[0]!) : localeFilter[0]!,
       );
 
-  const cachePath = getDefaultCachePath(context.workspaceRoot);
+  const cachePath = resolveCachePath(context.workspaceRoot, nfBuilderOptions.cachePath);
 
   const normalized = await normalizeFederationOptions(
     {

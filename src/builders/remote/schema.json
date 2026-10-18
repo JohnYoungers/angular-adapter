@@ -50,6 +50,10 @@
       "description": "Will cache the shared externals so they can be re-used between builds",
       "alias": "cache"
     },
+    "cachePath": {
+      "type": "string",
+      "description": "Folder for the federation cache, relative to the workspace root. Defaults to 'node_modules/.cache/native-federation'. Avoid '.angular/cache' (Angular purges it); use e.g. '.angular/nf-cache' and gitignore it."
+    },
     "assets": {
       "type": "array",
       "description": "Assets to copy into the output directory. Same shape as @angular/build:application 'assets'.",
