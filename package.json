@@ -10,7 +10,13 @@
     "url": "http://www.angulararchitects.io"
   },
   "peerDependencies": {
-    "@angular/build": "~22.2.0"
+    "@angular/build": "~22.2.0",
+    "@angular/localize": "~22.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/localize": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@angular-devkit/architect": "^0.2202.0",
@@ -80,6 +86,7 @@
   },
   "devDependencies": {
     "@angular/build": "~22.2.0",
+    "@angular/localize": "~22.2.0",
     "@eslint/js": "^10.0.1",
     "@nx/devkit": "^23.1.0",
     "@types/node": "~24.10.0",

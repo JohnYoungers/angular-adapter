@@ -167,7 +167,14 @@ function batchSourcePatterns(files: string[]): string[] {
 // .cmd shim on Windows, which can only be started through cmd.exe (and its 8191 character limit)
 function resolveLocalizeTranslate(workspaceRoot: string): string {
   const require = createRequire(path.join(workspaceRoot, 'package.json'));
-  const packageJsonPath = require.resolve('@angular/localize/package.json');
+  let packageJsonPath: string;
+  try {
+    packageJsonPath = require.resolve('@angular/localize/package.json');
+  } catch {
+    throw new Error(
+      '@angular/localize could not be found. Install it to build with i18n translations.'
+    );
+  }
   const { bin } = require(packageJsonPath) as { bin: Record<string, string> };
   return path.resolve(path.dirname(packageJsonPath), bin['localize-translate']!);
 }
