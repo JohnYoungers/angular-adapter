@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { logger } from '@softarc/native-federation/internal';
 import type { BuilderContext } from '@angular-devkit/architect';
 import type { FederationInfo } from '@softarc/native-federation';
@@ -14,6 +14,21 @@ import {
 
 vi.mock('fs');
 vi.mock('child_process');
+vi.mock('module', () => ({
+  createRequire: () =>
+    Object.assign(
+      (id: string) => {
+        expect(id).toBe('/ws/node_modules/@angular/localize/package.json');
+        return { bin: { 'localize-translate': './tools/bundles/src/translate/cli.js' } };
+      },
+      { resolve: () => '/ws/node_modules/@angular/localize/package.json' }
+    ),
+}));
+
+const localizeArgs = (call = 0) => vi.mocked(execFileSync).mock.calls[call]![1] as string[];
+const valueAfter = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+// path.resolve yields backslashes and a drive letter on Windows
+const posix = (p: string | undefined) => p?.replace(/^[A-Za-z]:/, '').replaceAll('\\', '/');
 
 const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
 const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined);
@@ -70,7 +85,7 @@ describe('translateFederationArtifacts', () => {
   };
 
   beforeEach(() => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from('translated ok'));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('translated ok'));
     vi.mocked(fs.mkdtempSync).mockReturnValue('/tmp/nf-i18n-x');
     vi.mocked(fs.existsSync).mockReturnValue(true);
   });
@@ -78,7 +93,7 @@ describe('translateFederationArtifacts', () => {
   it('does nothing when no configured locale matches the requested ones', async () => {
     await translateFederationArtifacts(i18n, ['es'], 'dist', federationResult, '/ws');
 
-    expect(execSync).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
     expect(fs.mkdirSync).not.toHaveBeenCalled();
     expect(infoSpy).not.toHaveBeenCalled();
   });
@@ -86,24 +101,33 @@ describe('translateFederationArtifacts', () => {
   it('filters to the intersection of requested and configured locales', async () => {
     await translateFederationArtifacts(i18n, ['de'], 'dist', federationResult, '/ws');
 
-    const cmd = vi.mocked(execSync).mock.calls[0]![0] as string;
-    expect(cmd).toContain('--target-locales de');
-    expect(cmd).not.toContain(' fr');
+    const args = localizeArgs();
+    const targets = args.slice(args.indexOf('--target-locales') + 1, args.indexOf('-l'));
+    expect(targets).toEqual(['de']);
   });
 
   it('builds the localize-translate command from the federation output files', async () => {
     await translateFederationArtifacts(i18n, true, 'dist', federationResult, '/ws');
 
-    const cmd = vi.mocked(execSync).mock.calls[0]![0] as string;
-    expect(cmd).toContain('localize-translate');
-    expect(cmd).toContain('-s "{dep1.js,./cmp.js,chunk1.js}"');
-    expect(cmd).toContain('--target-locales de fr');
-    expect(cmd).toContain('-l en');
+    const [file, args] = vi.mocked(execFileSync).mock.calls[0]!;
+    // the CLI script is run with node, not through a shell
+    expect(file).toBe(process.execPath);
+    expect(posix(args![0])).toBe(
+      '/ws/node_modules/@angular/localize/tools/bundles/src/translate/cli.js'
+    );
+    expect(valueAfter(args!, '-s')).toBe('{dep1.js,./cmp.js,chunk1.js}');
+    expect(args!.slice(args!.indexOf('--target-locales') + 1, args!.indexOf('-l'))).toEqual([
+      'de',
+      'fr',
+    ]);
+    expect(valueAfter(args!, '-l')).toBe('en');
     // source locale dir is part of the -r reference path
-    expect(cmd).toMatch(/-r "[^"]*browser\/en"/);
-    // both translation file groups are passed
-    expect(cmd).toContain('"src/locale/messages.de.xlf"');
-    expect(cmd).toContain('["a.xlf","b.xlf"]');
+    expect(posix(valueAfter(args!, '-r'))).toBe('/ws/dist/browser/en');
+    // both translation file groups are passed, a list of files as `[a,b]`
+    expect(args!.slice(args!.indexOf('-t') + 1, args!.indexOf('-o'))).toEqual([
+      'src/locale/messages.de.xlf',
+      '[a.xlf,b.xlf]',
+    ]);
   });
 
   it('collects dense shared entries when denseExternals is enabled', async () => {
@@ -115,8 +139,31 @@ describe('translateFederationArtifacts', () => {
 
     await translateFederationArtifacts(i18n, true, 'dist', denseResult, '/ws');
 
-    const cmd = vi.mocked(execSync).mock.calls[0]![0] as string;
-    expect(cmd).toContain('-s "{dep1.js,dep1.legacy.js,./cmp.js,chunk1.js}"');
+    expect(valueAfter(localizeArgs(), '-s')).toBe('{dep1.js,dep1.legacy.js,./cmp.js,chunk1.js}');
+  });
+
+  it('splits a long list of federation files over several localize-translate runs', async () => {
+    const manyFiles = Array.from({ length: 1000 }, (_, i) => `chunk-${i}-${'x'.repeat(40)}.js`);
+    const bigResult = {
+      shared: [],
+      exposes: [],
+      chunks: { c1: manyFiles },
+    } as unknown as FederationInfo;
+
+    await translateFederationArtifacts(i18n, true, 'dist', bigResult, '/ws');
+
+    const calls = vi.mocked(execFileSync).mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+
+    const patterns = calls.map((_, i) => valueAfter(localizeArgs(i), '-s')!);
+    for (const pattern of patterns) {
+      expect(pattern.length).toBeLessThan(16_100);
+    }
+    // every file is translated exactly once
+    const translated = patterns.flatMap(p => p.slice(1, -1).split(','));
+    expect(translated).toEqual(manyFiles);
+    // the translated files are copied once, after the last run
+    expect(fs.cpSync).toHaveBeenCalledTimes(3);
   });
 
   it('uses sourceLocale.code when the source locale is an object', async () => {
@@ -127,8 +174,7 @@ describe('translateFederationArtifacts', () => {
 
     await translateFederationArtifacts(objLocaleI18n, true, 'dist', federationResult, '/ws');
 
-    const cmd = vi.mocked(execSync).mock.calls[0]![0] as string;
-    expect(cmd).toContain('-l en-US');
+    expect(valueAfter(localizeArgs(), '-l')).toBe('en-US');
   });
 
   // sourceLocale is optional in angular.json; @angular/build then uses en-US
@@ -141,9 +187,9 @@ describe('translateFederationArtifacts', () => {
       '/ws'
     );
 
-    const cmd = vi.mocked(execSync).mock.calls[0]![0] as string;
-    expect(cmd).toContain('-l en-US');
-    expect(cmd).toMatch(/-r "[^"]*browser\/en-US"/);
+    const args = localizeArgs();
+    expect(valueAfter(args, '-l')).toBe('en-US');
+    expect(posix(valueAfter(args, '-r'))).toBe('/ws/dist/browser/en-US');
   });
 
   it('creates a dist folder and copies the remoteEntry for each target locale', async () => {
@@ -163,10 +209,10 @@ describe('translateFederationArtifacts', () => {
   it('resolves output, binary and cwd against workspaceRoot', async () => {
     await translateFederationArtifacts(i18n, ['de'], 'dist', federationResult, '/ws');
 
-    const [cmd, opts] = vi.mocked(execSync).mock.calls[0]!;
-    expect(cmd).toContain('"/ws/node_modules/.bin/localize-translate"');
-    expect(cmd).toContain('-r "/ws/dist/browser/en"');
-    expect(cmd).toContain('-o "/tmp/nf-i18n-x/{{LOCALE}}"');
+    const [, args, opts] = vi.mocked(execFileSync).mock.calls[0]!;
+    expect(posix(args![0])).toContain('/ws/node_modules/@angular/localize/');
+    expect(posix(valueAfter(args!, '-r'))).toBe('/ws/dist/browser/en');
+    expect(posix(valueAfter(args!, '-o'))).toBe('/tmp/nf-i18n-x/{{LOCALE}}');
     expect(opts).toEqual({ cwd: '/ws' });
     expect(fs.mkdirSync).toHaveBeenCalledWith('/ws/dist/browser/de', { recursive: true });
     expect(fs.copyFileSync).toHaveBeenCalledWith(
@@ -183,11 +229,14 @@ describe('translateFederationArtifacts', () => {
 
     await translateFederationArtifacts(subPathI18n, true, 'dist', federationResult, '/ws');
 
-    const cmd = vi.mocked(execSync).mock.calls[0]![0] as string;
+    const args = localizeArgs();
     // localize-translate reads from the source subPath, but writes per locale code
-    expect(cmd).toContain('-r "/ws/dist/browser/en"');
-    expect(cmd).toContain('--target-locales de fr');
-    expect(cmd).toContain('-l en-US');
+    expect(posix(valueAfter(args, '-r'))).toBe('/ws/dist/browser/en');
+    expect(args.slice(args.indexOf('--target-locales') + 1, args.indexOf('-l'))).toEqual([
+      'de',
+      'fr',
+    ]);
+    expect(valueAfter(args, '-l')).toBe('en-US');
 
     expect(fs.mkdirSync).toHaveBeenCalledWith('/ws/dist/browser/deutsch', { recursive: true });
     expect(fs.copyFileSync).toHaveBeenCalledWith(
@@ -203,7 +252,7 @@ describe('translateFederationArtifacts', () => {
   });
 
   it('logs the error and rethrows when the translate command fails', async () => {
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('localize boom');
     });
 

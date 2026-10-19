@@ -1,6 +1,7 @@
 import type { BuilderContext } from '@angular-devkit/architect';
 import { logger } from '@softarc/native-federation/internal';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
@@ -74,15 +75,13 @@ export async function translateFederationArtifacts(
 
   logger.info('Writing Translations');
 
+  // localize-translate expects a list of files for one locale as `[a,b]`
   const translationFiles = locales
     .map(loc => i18n.locales[loc])
     .map(config =>
       typeof config === 'string' || Array.isArray(config) ? config : config!.translation!
     )
-    .map(files => JSON.stringify(files))
-    .join(' ');
-
-  const targetLocales = locales.join(' ');
+    .map(files => (Array.isArray(files) ? `[${files.join(',')}]` : files));
 
   const sourceLocale = getSourceLocaleCode(i18n);
 
@@ -100,24 +99,37 @@ export async function translateFederationArtifacts(
 
   // Here, we use a glob with an exhaustive list i/o `"*.js"`
   // to improve performance
-  const sourcePattern = '{' + federationFiles.join(',') + '}';
+  const sourcePatterns = batchSourcePatterns(federationFiles);
 
   const localePath = (locale: string) =>
     path.join(outputPath, 'browser', getLocaleSubPath(i18n, locale));
   const sourceLocalePath = localePath(sourceLocale);
 
-  const localizeTranslate = path.resolve(workspaceRoot, 'node_modules/.bin/localize-translate');
+  const localizeTranslate = resolveLocalizeTranslate(workspaceRoot);
 
-  const cmd = `"${localizeTranslate}" -r "${sourceLocalePath}" -s "${sourcePattern}" -t ${translationFiles} -o "${translationOutPath}" --target-locales ${targetLocales} -l ${sourceLocale}`;
+  const commonArgs = [
+    '-r',
+    sourceLocalePath,
+    '-t',
+    ...translationFiles,
+    '-o',
+    translationOutPath,
+    '--target-locales',
+    ...locales,
+    '-l',
+    sourceLocale,
+  ];
 
   const targetPaths = locales.map(localePath);
   ensureDistFolders(targetPaths);
   copyRemoteEntry(targetPaths, sourceLocalePath);
 
-  logger.debug('Running: ' + cmd);
-
   try {
-    execCommand(cmd, workspaceRoot, 'Successfully translated');
+    for (const sourcePattern of sourcePatterns) {
+      const args = [localizeTranslate, '-s', sourcePattern, ...commonArgs];
+      logger.debug('Running: ' + [process.execPath, ...args].join(' '));
+      execCommand(process.execPath, args, workspaceRoot, 'Successfully translated');
+    }
     for (const locale of new Set([sourceLocale, ...locales])) {
       const staged = path.join(stagingPath, locale);
       if (fs.existsSync(staged)) {
@@ -129,10 +141,41 @@ export async function translateFederationArtifacts(
   }
 }
 
-function execCommand(cmd: string, cwd: string, defaultSuccessInfo: string) {
+// Windows limits a command line to 32767 characters (8191 through cmd.exe), and the list of
+// federation files can exceed that. Split it over several runs of localize-translate.
+const MAX_SOURCE_PATTERN_LENGTH = 16_000;
+
+function batchSourcePatterns(files: string[]): string[] {
+  const batches: string[][] = [[]];
+  let length = 0;
+
+  for (const file of files) {
+    const current = batches[batches.length - 1]!;
+    if (current.length > 0 && length + file.length + 1 > MAX_SOURCE_PATTERN_LENGTH) {
+      batches.push([file]);
+      length = file.length;
+    } else {
+      current.push(file);
+      length += file.length + 1;
+    }
+  }
+
+  return batches.map(batch => '{' + batch.join(',') + '}');
+}
+
+// Run the CLI script with node directly: .bin/localize-translate is a shell script on POSIX and a
+// .cmd shim on Windows, which can only be started through cmd.exe (and its 8191 character limit)
+function resolveLocalizeTranslate(workspaceRoot: string): string {
+  const require = createRequire(path.join(workspaceRoot, 'package.json'));
+  const packageJsonPath = require.resolve('@angular/localize/package.json');
+  const { bin } = require(packageJsonPath) as { bin: Record<string, string> };
+  return path.resolve(path.dirname(packageJsonPath), bin['localize-translate']!);
+}
+
+function execCommand(file: string, args: string[], cwd: string, defaultSuccessInfo: string) {
   try {
     // translation file paths from angular.json are workspace-relative
-    const output = execSync(cmd, { cwd });
+    const output = execFileSync(file, args, { cwd });
     logger.info(output.toString() || defaultSuccessInfo);
   } catch (error) {
     logger.error((error as Error).message!);
