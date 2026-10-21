@@ -8,6 +8,7 @@ import { createNodeModulesEsbuildContext } from './node-modules-bundler.js';
 import { normalizeContextOptions } from '../../utils/normalize-context-options.js';
 import { createExternalsCacheKey } from './externals-cache-key.js';
 import { resolveSharedBundleSettings } from './shared-bundle-settings.js';
+import { entriesByOutputName } from './output-entries.js';
 
 vi.mock('fs');
 vi.mock('esbuild', () => ({ stop: vi.fn().mockResolvedValue(undefined) }));
@@ -16,12 +17,13 @@ vi.mock('./node-modules-bundler.js', () => ({ createNodeModulesEsbuildContext: v
 vi.mock('../../utils/normalize-context-options.js', () => ({ normalizeContextOptions: vi.fn() }));
 vi.mock('./externals-cache-key.js', () => ({ createExternalsCacheKey: vi.fn() }));
 vi.mock('./shared-bundle-settings.js', () => ({ resolveSharedBundleSettings: vi.fn() }));
+vi.mock('./output-entries.js', () => ({ entriesByOutputName: vi.fn() }));
 
 const sharedBundleSettings = { target: ['chrome120'], sourcemap: false as const, plugins: [] };
 const externalsCacheKey = { adapter: 'adapter@1.0.0', options: { target: 'chrome120' } };
 
 const ngBuilderOptions = {} as never;
-const context = {} as never;
+const context = { workspaceRoot: '/ws' } as never;
 
 function makeCtx() {
   return {
@@ -52,6 +54,7 @@ beforeEach(() => {
   vi.mocked(normalizeContextOptions).mockReturnValue(normalizedWith() as never);
   vi.mocked(resolveSharedBundleSettings).mockResolvedValue(sharedBundleSettings);
   vi.mocked(createExternalsCacheKey).mockReturnValue(externalsCacheKey);
+  vi.mocked(entriesByOutputName).mockReturnValue(new Map());
   vi.mocked(createAngularEsbuildContext).mockResolvedValue({
     ctx: makeCtx() as never,
     pluginDisposed: Promise.resolve(),
@@ -147,6 +150,36 @@ describe('createAngularBuildAdapter', () => {
       new TextEncoder().encode('code')
     );
     expect(result).toEqual([{ fileName: '/out/main.js' }]);
+  });
+
+  // core#193: without `entry`, core matched `chunk-<hash>.js` to an exposed `./chunk`.
+  it('sets entry from the metafile on the outputs built from an entry point', async () => {
+    const entryPoints = [{ fileName: 'src/chunk.ts', outName: 'chunk.js' }];
+    vi.mocked(normalizeContextOptions).mockReturnValue(normalizedWith({ entryPoints }) as never);
+    const metafile = { inputs: {}, outputs: {} };
+    const ctx = makeCtx();
+    ctx.rebuild.mockResolvedValue({
+      outputFiles: [
+        { path: '/ws/dist/chunk-AAAA.js', contents: new Uint8Array() },
+        { path: '/ws/dist/chunk-BBBB.js', contents: new Uint8Array() },
+      ],
+      metafile,
+    });
+    vi.mocked(createAngularEsbuildContext).mockResolvedValue({
+      ctx,
+      pluginDisposed: Promise.resolve(),
+    } as never);
+    vi.mocked(entriesByOutputName).mockReturnValue(new Map([['chunk-BBBB.js', 'chunk.js']]));
+    const adapter = await createAngularBuildAdapter(ngBuilderOptions, context);
+    await adapter.setup('remote', {} as never);
+
+    const result = await adapter.build('remote');
+
+    expect(entriesByOutputName).toHaveBeenCalledWith(metafile, entryPoints, '/ws');
+    expect(result).toEqual([
+      { fileName: '/out/chunk-AAAA.js' },
+      { fileName: '/out/chunk-BBBB.js', entry: 'chunk.js' },
+    ]);
   });
 
   // #181: writing outFile.text decoded binary assets as UTF-8, replacing invalid bytes with U+FFFD.

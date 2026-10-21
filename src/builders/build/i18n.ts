@@ -57,7 +57,7 @@ export function getLocaleSubPath(i18n: I18nConfig, locale: string): string {
   return locale;
 }
 
-export async function translateFederationArtifacts(
+export function translateFederationArtifacts(
   i18n: I18nConfig,
   localize: boolean | string[],
   outputPath: string,
@@ -97,19 +97,20 @@ export async function translateFederationArtifacts(
     ...Object.values(federationResult.chunks ?? {}).flat(),
   ];
 
-  // Here, we use a glob with an exhaustive list i/o `"*.js"`
-  // to improve performance
-  const sourcePatterns = batchSourcePatterns(federationFiles);
-
   const localePath = (locale: string) =>
     path.join(outputPath, 'browser', getLocaleSubPath(i18n, locale));
   const sourceLocalePath = localePath(sourceLocale);
 
   const localizeTranslate = resolveLocalizeTranslate(workspaceRoot);
 
-  const commonArgs = [
+  const inputPath = path.join(stagingPath, '.input');
+
+  const args = [
+    localizeTranslate,
     '-r',
-    sourceLocalePath,
+    inputPath,
+    '-s',
+    '**/*',
     '-t',
     ...translationFiles,
     '-o',
@@ -125,11 +126,11 @@ export async function translateFederationArtifacts(
   copyRemoteEntry(targetPaths, sourceLocalePath);
 
   try {
-    for (const sourcePattern of sourcePatterns) {
-      const args = [localizeTranslate, '-s', sourcePattern, ...commonArgs];
-      logger.debug('Running: ' + [process.execPath, ...args].join(' '));
-      execCommand(process.execPath, args, workspaceRoot, 'Successfully translated');
-    }
+    // An exhaustive list, not `*.js`: on a watch rebuild the source locale folder also holds Angular's output
+    stageFiles(federationFiles, sourceLocalePath, inputPath);
+
+    logger.debug('Running: ' + [process.execPath, ...args].join(' '));
+    execCommand(process.execPath, args, workspaceRoot, 'Successfully translated');
     for (const locale of new Set([sourceLocale, ...locales])) {
       const staged = path.join(stagingPath, locale);
       if (fs.existsSync(staged)) {
@@ -141,41 +142,19 @@ export async function translateFederationArtifacts(
   }
 }
 
-// Windows limits a command line to 32767 characters (8191 through cmd.exe), and the list of
-// federation files can exceed that. Split it over several runs of localize-translate.
-const MAX_SOURCE_PATTERN_LENGTH = 16_000;
-
-function batchSourcePatterns(files: string[]): string[] {
-  const batches: string[][] = [[]];
-  let length = 0;
-
-  for (const file of files) {
-    const current = batches[batches.length - 1]!;
-    if (current.length > 0 && length + file.length + 1 > MAX_SOURCE_PATTERN_LENGTH) {
-      batches.push([file]);
-      length = file.length;
-    } else {
-      current.push(file);
-      length += file.length + 1;
-    }
-  }
-
-  return batches.map(batch => '{' + batch.join(',') + '}');
-}
-
 // Run the CLI script with node directly: .bin/localize-translate is a shell script on POSIX and a
 // .cmd shim on Windows, which can only be started through cmd.exe (and its 8191 character limit)
 function resolveLocalizeTranslate(workspaceRoot: string): string {
-  const require = createRequire(path.join(workspaceRoot, 'package.json'));
+  const workspaceRequire = createRequire(path.join(workspaceRoot, 'package.json'));
   let packageJsonPath: string;
   try {
-    packageJsonPath = require.resolve('@angular/localize/package.json');
+    packageJsonPath = workspaceRequire.resolve('@angular/localize/package.json');
   } catch {
     throw new Error(
       '@angular/localize could not be found. Install it to build with i18n translations.'
     );
   }
-  const { bin } = require(packageJsonPath) as { bin: Record<string, string> };
+  const { bin } = workspaceRequire(packageJsonPath) as { bin: Record<string, string> };
   return path.resolve(path.dirname(packageJsonPath), bin['localize-translate']!);
 }
 
@@ -197,6 +176,14 @@ function copyRemoteEntry(targetPaths: string[], sourceLocalePath: string) {
 
   for (const targetPath of targetPaths) {
     fs.copyFileSync(remoteEntry, path.join(targetPath, 'remoteEntry.json'));
+  }
+}
+
+// A listed file that is missing fails the build instead of being skipped
+function stageFiles(files: string[], fromDir: string, toDir: string) {
+  fs.mkdirSync(toDir, { recursive: true });
+  for (const file of new Set(files)) {
+    fs.copyFileSync(path.join(fromDir, file), path.join(toDir, file));
   }
 }
 

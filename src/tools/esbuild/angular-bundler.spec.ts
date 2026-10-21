@@ -158,6 +158,13 @@ describe('createAngularEsbuildContext', () => {
     expect(lastBuildOptions().absWorkingDir).toBe(workspaceRoot);
   });
 
+  // core#193: the adapter reads each output's entryPoint from the metafile to set `entry`.
+  it('requests a metafile', async () => {
+    await createAngularEsbuildContext(makeOptions(), 'mapping-or-exposed');
+
+    expect(lastBuildOptions().metafile).toBe(true);
+  });
+
   // Core hands shared mappings over absolute already.
   it('leaves an already-absolute entry point untouched', async () => {
     const absolute = path.join(workspaceRoot, 'libs', 'ui', 'src', 'index.ts');
