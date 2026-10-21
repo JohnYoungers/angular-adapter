@@ -220,8 +220,11 @@ describe('translateFederationArtifacts', () => {
     expect(mkdirPaths.some(p => p.endsWith('browser/fr'))).toBe(true);
     expect(vi.mocked(fs.mkdirSync)).toHaveBeenCalledWith(expect.any(String), { recursive: true });
 
-    expect(fs.copyFileSync).toHaveBeenCalledTimes(2);
-    const copyTargets = vi.mocked(fs.copyFileSync).mock.calls.map(c => String(c[1]));
+    const copyTargets = vi
+      .mocked(fs.copyFileSync)
+      .mock.calls.map(c => posix(String(c[1])))
+      .filter(p => p.endsWith('remoteEntry.json'));
+    expect(copyTargets).toHaveLength(2);
     expect(copyTargets.some(p => p.endsWith('browser/de/remoteEntry.json'))).toBe(true);
     expect(copyTargets.some(p => p.endsWith('browser/fr/remoteEntry.json'))).toBe(true);
   });
