@@ -21,7 +21,7 @@ const sharedBundleSettings = { target: ['chrome120'], sourcemap: false as const,
 const externalsCacheKey = { adapter: 'adapter@1.0.0', options: { target: 'chrome120' } };
 
 const ngBuilderOptions = {} as never;
-const context = {} as never;
+const context = { workspaceRoot: '/ws' } as never;
 
 function makeCtx() {
   return {
@@ -146,6 +146,53 @@ describe('createAngularBuildAdapter', () => {
       '/out/main.js',
       new TextEncoder().encode('code')
     );
+    expect(result).toEqual([{ fileName: '/out/main.js' }]);
+  });
+
+  // core#193: without `entry`, core matched `chunk-<hash>.js` to an exposed `./chunk`.
+  it('sets entry on scripts built from an entry point, from the metafile', async () => {
+    vi.mocked(normalizeContextOptions).mockReturnValue(
+      normalizedWith({ entryPoints: [{ fileName: 'src/chunk.ts', outName: 'chunk.js' }] }) as never
+    );
+    const ctx = makeCtx();
+    ctx.rebuild.mockResolvedValue({
+      outputFiles: [
+        { path: '/ws/dist/chunk-AAAA.js', contents: new Uint8Array() },
+        { path: '/ws/dist/chunk-BBBB.js', contents: new Uint8Array() },
+      ],
+      metafile: {
+        inputs: {},
+        outputs: {
+          'dist/chunk-AAAA.js': {},
+          'dist/chunk-BBBB.js': { entryPoint: 'src/chunk.ts' },
+        },
+      },
+    });
+    vi.mocked(createAngularEsbuildContext).mockResolvedValue({
+      ctx,
+      pluginDisposed: Promise.resolve(),
+    } as never);
+    const adapter = await createAngularBuildAdapter(ngBuilderOptions, context);
+    await adapter.setup('remote', {} as never);
+
+    const result = await adapter.build('remote');
+
+    expect(result).toEqual([
+      { fileName: '/out/chunk-AAAA.js' },
+      { fileName: '/out/chunk-BBBB.js', entry: 'chunk.js' },
+    ]);
+  });
+
+  // Core ignores `entry` on shared bundles, and their context builds no metafile.
+  it('leaves entry off shared bundles', async () => {
+    vi.mocked(normalizeContextOptions).mockReturnValue(
+      normalizedWith({ isMappingOrExposed: false }) as never
+    );
+    const adapter = await createAngularBuildAdapter(ngBuilderOptions, context);
+    await adapter.setup('browser-shared', {} as never);
+
+    const result = await adapter.build('browser-shared');
+
     expect(result).toEqual([{ fileName: '/out/main.js' }]);
   });
 

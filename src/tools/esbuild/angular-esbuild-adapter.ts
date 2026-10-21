@@ -6,6 +6,7 @@ import {
   type NFBuildAdapterOptions,
   type NFBuildAdapterContext,
   type FederationCache,
+  type EntryPoint,
 } from '@softarc/native-federation';
 import { AbortedError } from '@softarc/native-federation/internal';
 
@@ -16,6 +17,7 @@ import type { ApplicationBuilderOptions } from '@angular/build';
 import { createAngularEsbuildContext } from './angular-bundler.js';
 import { createNodeModulesEsbuildContext } from './node-modules-bundler.js';
 import { createExternalsCacheKey } from './externals-cache-key.js';
+import { mapOutputEntries } from './output-entries.js';
 import { resolveSharedBundleSettings } from './shared-bundle-settings.js';
 import { normalizeContextOptions } from '../../utils/normalize-context-options.js';
 import type { NfInternalOptions } from '../../builders/build/schema.js';
@@ -23,16 +25,23 @@ import type { NfInternalOptions } from '../../builders/build/schema.js';
 interface EsbuildContextResult extends NFBuildAdapterContext<esbuild.BuildContext> {
   pluginDisposed: Promise<void>;
   cache: FederationCache<SourceFileCache>;
+  entryPoints: EntryPoint[];
+  workingDir: string;
 }
 
-function writeResult(result: esbuild.BuildResult<esbuild.BuildOptions>, outdir: string): string[] {
-  const writtenFiles: string[] = [];
+function writeResult(
+  result: esbuild.BuildResult<esbuild.BuildOptions>,
+  outdir: string,
+  entries: Map<string, string>
+): NFBuildAdapterResult[] {
+  const writtenFiles: NFBuildAdapterResult[] = [];
 
   for (const outFile of result.outputFiles ?? []) {
     const fileName = path.basename(outFile.path);
     const filePath = path.join(outdir, fileName);
     fs.writeFileSync(filePath, outFile.contents);
-    writtenFiles.push(filePath);
+    const entry = entries.get(outFile.path);
+    writtenFiles.push(entry ? { fileName: filePath, entry } : { fileName: filePath });
   }
 
   return writtenFiles;
@@ -106,6 +115,8 @@ export async function createAngularBuildAdapter(
       isMappingOrExposed: normalizedOptions.isMappingOrExposed,
       dev: normalizedOptions.dev,
       name,
+      entryPoints: normalizedOptions.entryPoints,
+      workingDir: context.workspaceRoot,
     });
   };
 
@@ -130,12 +141,13 @@ export async function createAngularBuildAdapter(
         bundleContext.cache.bundlerCache.invalidate(new Set(opts.modifiedFiles));
       }
       const result = await bundleContext.ctx.rebuild();
-      const writtenFiles = writeResult(
-        result as esbuild.BuildResult<esbuild.BuildOptions>,
-        bundleContext.outdir
-      );
+      // Without `entry`, core matches hashed entries by file name (core#193).
+      const entries =
+        bundleContext.isMappingOrExposed && result.metafile
+          ? mapOutputEntries(result.metafile, bundleContext.entryPoints, bundleContext.workingDir)
+          : new Map<string, string>();
 
-      return writtenFiles.map(fileName => ({ fileName }) as NFBuildAdapterResult);
+      return writeResult(result, bundleContext.outdir, entries);
     } catch (error) {
       if (opts?.signal?.aborted && error instanceof Error && error.message.includes('canceled')) {
         throw new AbortedError('[build] ESBuild rebuild was canceled.');
