@@ -17,7 +17,7 @@ import type { ApplicationBuilderOptions } from '@angular/build';
 import { createAngularEsbuildContext } from './angular-bundler.js';
 import { createNodeModulesEsbuildContext } from './node-modules-bundler.js';
 import { createExternalsCacheKey } from './externals-cache-key.js';
-import { mapOutputEntries } from './output-entries.js';
+import { entriesByOutputName } from './output-entries.js';
 import { resolveSharedBundleSettings } from './shared-bundle-settings.js';
 import { normalizeContextOptions } from '../../utils/normalize-context-options.js';
 import type { NfInternalOptions } from '../../builders/build/schema.js';
@@ -26,13 +26,12 @@ interface EsbuildContextResult extends NFBuildAdapterContext<esbuild.BuildContex
   pluginDisposed: Promise<void>;
   cache: FederationCache<SourceFileCache>;
   entryPoints: EntryPoint[];
-  workingDir: string;
 }
 
-function writeResult(
+function writeOutputs(
   result: esbuild.BuildResult<esbuild.BuildOptions>,
   outdir: string,
-  entries: Map<string, string>
+  entryByOutputName: Map<string, string>
 ): NFBuildAdapterResult[] {
   const writtenFiles: NFBuildAdapterResult[] = [];
 
@@ -40,7 +39,7 @@ function writeResult(
     const fileName = path.basename(outFile.path);
     const filePath = path.join(outdir, fileName);
     fs.writeFileSync(filePath, outFile.contents);
-    const entry = entries.get(outFile.path);
+    const entry = entryByOutputName.get(fileName);
     writtenFiles.push(entry ? { fileName: filePath, entry } : { fileName: filePath });
   }
 
@@ -116,7 +115,6 @@ export async function createAngularBuildAdapter(
       dev: normalizedOptions.dev,
       name,
       entryPoints: normalizedOptions.entryPoints,
-      workingDir: context.workspaceRoot,
     });
   };
 
@@ -142,12 +140,13 @@ export async function createAngularBuildAdapter(
       }
       const result = await bundleContext.ctx.rebuild();
       // Without `entry`, core matches hashed entries by file name (core#193).
-      const entries =
-        bundleContext.isMappingOrExposed && result.metafile
-          ? mapOutputEntries(result.metafile, bundleContext.entryPoints, bundleContext.workingDir)
-          : new Map<string, string>();
+      const entryByOutputName = entriesByOutputName(
+        result.metafile,
+        bundleContext.entryPoints,
+        context.workspaceRoot
+      );
 
-      return writeResult(result, bundleContext.outdir, entries);
+      return writeOutputs(result, bundleContext.outdir, entryByOutputName);
     } catch (error) {
       if (opts?.signal?.aborted && error instanceof Error && error.message.includes('canceled')) {
         throw new AbortedError('[build] ESBuild rebuild was canceled.');
