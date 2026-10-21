@@ -166,6 +166,7 @@ export async function createAngularEsbuildContext(
     absWorkingDir: workspaceRoot,
     entryNames: hash ? '[name]-[hash]' : '[name]',
     write: false,
+    metafile: true,
     external,
     logLevel: 'warning',
     bundle: true,
