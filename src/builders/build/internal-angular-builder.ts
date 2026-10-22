@@ -46,12 +46,8 @@ export const createInternalAngularBuilder =
       options.define = { ...options.define, ...opts.define };
     }
 
-    // Angular also applies externalDependencies to stylesheets, where an external package hides
-    // its Sass partials (#167). Leave them out of the build when the `externals` plugin covers the
-    // browser bundle and there is no server bundle: server bundles, their polyfills and the
-    // ngServerMode banner Angular adds for externals only get them from here.
-    // A proxy, not a copy: normalizeOptions writes its `ssr`/`prerender` corrections back onto the
-    // options, and serveWithVite reads them from `options`.
+    // Stylesheets get externalDependencies too (#167); server bundles and their polyfills only get
+    // them from here. Proxy, not copy: serveWithVite reads normalizeOptions' ssr/prerender writes.
     const buildOptions =
       opts?.externalsPlugin && !options.server
         ? new Proxy(options, {
