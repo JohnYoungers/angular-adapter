@@ -51,7 +51,10 @@ importers:
     devDependencies:
       '@angular/build':
         specifier: ~22.2.0
-        version: 22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)(@types/node@24.10.15)(jiti@2.7.0)(postcss@8.5.30)(rollup@4.64.9)(tslib@2.8.1)(typescript@6.0.3)(vitest@4.1.12)(yaml@2.9.1)
+        version: 22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)(@angular/localize@22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3))(@types/node@24.10.15)(jiti@2.7.0)(postcss@8.5.30)(rollup@4.64.9)(tslib@2.8.1)(typescript@6.0.3)(vitest@4.1.12)(yaml@2.9.1)
+      '@angular/localize':
+        specifier: ~22.2.0
+        version: 22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.13.0(jiti@2.7.0))
@@ -182,6 +185,14 @@ packages:
   '@angular/compiler@22.2.3':
     resolution: {integrity: sha512-GjDkmOBqW+6RJTeW5mlLRivf6Zy7Ed0auVh+DYD67d4UF4Sk17F1vIt8puF4CQ2PIezlHh7oOnermCBNHAOGkQ==, tarball: https://registry.npmjs.org/@angular/compiler/-/compiler-22.2.3.tgz}
     engines: {node: ^22.22.3 || ^24.15.0 || >=26.0.0}
+
+  '@angular/localize@22.2.3':
+    resolution: {integrity: sha512-PAiV/k8ps4Qosu0VFk5/HIhjfQa0w4Y28+rx3aPIFei3d+kSak4yG5X9SiPWJQaSXr+YamS5pE/BipLYLNvwqA==, tarball: https://registry.npmjs.org/@angular/localize/-/localize-22.2.3.tgz}
+    engines: {node: ^22.22.3 || ^24.15.0 || >=26.0.0}
+    hasBin: true
+    peerDependencies:
+      '@angular/compiler': 22.2.3
+      '@angular/compiler-cli': 22.2.3
 
   '@babel/code-frame@8.0.6':
     resolution: {integrity: sha512-uMHhvmDmwFiLuiozaoRYTZHqMFuu3fem/X9JY78lohAuLoh8LSGGC8JqUzo2cVuBsBxkjMZNk56CE7ock8Xxkw==, tarball: https://registry.npmjs.org/@babel/code-frame/-/code-frame-8.0.6.tgz}
@@ -3359,7 +3370,7 @@ snapshots:
     transitivePeerDependencies:
       - chokidar
 
-  '@angular/build@22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)(@types/node@24.10.15)(jiti@2.7.0)(postcss@8.5.30)(rollup@4.64.9)(tslib@2.8.1)(typescript@6.0.3)(vitest@4.1.12)(yaml@2.9.1)':
+  '@angular/build@22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)(@angular/localize@22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3))(@types/node@24.10.15)(jiti@2.7.0)(postcss@8.5.30)(rollup@4.64.9)(tslib@2.8.1)(typescript@6.0.3)(vitest@4.1.12)(yaml@2.9.1)':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@angular-devkit/architect': 0.2202.3(chokidar@5.0.0)
@@ -3393,6 +3404,7 @@ snapshots:
       vite: 8.3.4(@types/node@24.10.15)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(yaml@2.9.1)
       xxhash-wasm: 1.1.0
     optionalDependencies:
+      '@angular/localize': 22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)
       lmdb: 3.5.6
       postcss: 8.5.30
       rollup: 4.64.9
@@ -3426,6 +3438,14 @@ snapshots:
   '@angular/compiler@22.2.3':
     dependencies:
       tslib: 2.8.1
+
+  '@angular/localize@22.2.3(@angular/compiler-cli@22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3))(@angular/compiler@22.2.3)':
+    dependencies:
+      '@angular/compiler': 22.2.3
+      '@angular/compiler-cli': 22.2.3(@angular/compiler@22.2.3)(typescript@6.0.3)
+      '@babel/core': 8.0.1
+      tinyglobby: 0.2.17
+      yargs: 18.2.0
 
   '@babel/code-frame@8.0.6':
     dependencies:

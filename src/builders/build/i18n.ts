@@ -1,6 +1,7 @@
 import type { BuilderContext } from '@angular-devkit/architect';
 import { logger } from '@softarc/native-federation/internal';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
@@ -56,7 +57,7 @@ export function getLocaleSubPath(i18n: I18nConfig, locale: string): string {
   return locale;
 }
 
-export async function translateFederationArtifacts(
+export function translateFederationArtifacts(
   i18n: I18nConfig,
   localize: boolean | string[],
   outputPath: string,
@@ -74,15 +75,13 @@ export async function translateFederationArtifacts(
 
   logger.info('Writing Translations');
 
+  // localize-translate expects a list of files for one locale as `[a,b]`
   const translationFiles = locales
     .map(loc => i18n.locales[loc])
     .map(config =>
       typeof config === 'string' || Array.isArray(config) ? config : config!.translation!
     )
-    .map(files => JSON.stringify(files))
-    .join(' ');
-
-  const targetLocales = locales.join(' ');
+    .map(files => (Array.isArray(files) ? `[${files.join(',')}]` : files));
 
   const sourceLocale = getSourceLocaleCode(i18n);
 
@@ -98,26 +97,40 @@ export async function translateFederationArtifacts(
     ...Object.values(federationResult.chunks ?? {}).flat(),
   ];
 
-  // Here, we use a glob with an exhaustive list i/o `"*.js"`
-  // to improve performance
-  const sourcePattern = '{' + federationFiles.join(',') + '}';
-
   const localePath = (locale: string) =>
     path.join(outputPath, 'browser', getLocaleSubPath(i18n, locale));
   const sourceLocalePath = localePath(sourceLocale);
 
-  const localizeTranslate = path.resolve(workspaceRoot, 'node_modules/.bin/localize-translate');
+  const localizeTranslate = resolveLocalizeTranslate(workspaceRoot);
 
-  const cmd = `"${localizeTranslate}" -r "${sourceLocalePath}" -s "${sourcePattern}" -t ${translationFiles} -o "${translationOutPath}" --target-locales ${targetLocales} -l ${sourceLocale}`;
+  const inputPath = path.join(stagingPath, '.input');
+
+  const args = [
+    localizeTranslate,
+    '-r',
+    inputPath,
+    '-s',
+    '**/*',
+    '-t',
+    ...translationFiles,
+    '-o',
+    translationOutPath,
+    '--target-locales',
+    ...locales,
+    '-l',
+    sourceLocale,
+  ];
 
   const targetPaths = locales.map(localePath);
   ensureDistFolders(targetPaths);
   copyRemoteEntry(targetPaths, sourceLocalePath);
 
-  logger.debug('Running: ' + cmd);
-
   try {
-    execCommand(cmd, workspaceRoot, 'Successfully translated');
+    // An exhaustive list, not `*.js`: on a watch rebuild the source locale folder also holds Angular's output
+    stageFiles(federationFiles, sourceLocalePath, inputPath);
+
+    logger.debug('Running: ' + [process.execPath, ...args].join(' '));
+    execCommand(process.execPath, args, workspaceRoot, 'Successfully translated');
     for (const locale of new Set([sourceLocale, ...locales])) {
       const staged = path.join(stagingPath, locale);
       if (fs.existsSync(staged)) {
@@ -129,10 +142,26 @@ export async function translateFederationArtifacts(
   }
 }
 
-function execCommand(cmd: string, cwd: string, defaultSuccessInfo: string) {
+// Run the CLI script with node directly: .bin/localize-translate is a shell script on POSIX and a
+// .cmd shim on Windows, which can only be started through cmd.exe (and its 8191 character limit)
+function resolveLocalizeTranslate(workspaceRoot: string): string {
+  const workspaceRequire = createRequire(path.join(workspaceRoot, 'package.json'));
+  let packageJsonPath: string;
+  try {
+    packageJsonPath = workspaceRequire.resolve('@angular/localize/package.json');
+  } catch {
+    throw new Error(
+      '@angular/localize could not be found. Install it to build with i18n translations.'
+    );
+  }
+  const { bin } = workspaceRequire(packageJsonPath) as { bin: Record<string, string> };
+  return path.resolve(path.dirname(packageJsonPath), bin['localize-translate']!);
+}
+
+function execCommand(file: string, args: string[], cwd: string, defaultSuccessInfo: string) {
   try {
     // translation file paths from angular.json are workspace-relative
-    const output = execSync(cmd, { cwd });
+    const output = execFileSync(file, args, { cwd });
     logger.info(output.toString() || defaultSuccessInfo);
   } catch (error) {
     logger.error((error as Error).message!);
@@ -147,6 +176,14 @@ function copyRemoteEntry(targetPaths: string[], sourceLocalePath: string) {
 
   for (const targetPath of targetPaths) {
     fs.copyFileSync(remoteEntry, path.join(targetPath, 'remoteEntry.json'));
+  }
+}
+
+// A listed file that is missing fails the build instead of being skipped
+function stageFiles(files: string[], fromDir: string, toDir: string) {
+  fs.mkdirSync(toDir, { recursive: true });
+  for (const file of new Set(files)) {
+    fs.copyFileSync(path.join(fromDir, file), path.join(toDir, file));
   }
 }
 
