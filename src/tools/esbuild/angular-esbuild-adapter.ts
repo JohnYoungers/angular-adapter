@@ -33,17 +33,19 @@ function writeOutputs(
   outdir: string,
   entryByOutputName: Map<string, string>
 ): NFBuildAdapterResult[] {
-  const writtenFiles: NFBuildAdapterResult[] = [];
+  // Component stylesheets with the same basename each emit `<name>.css.map` (#195); report the
+  // path once, as the file the last write left on disk.
+  const writtenFiles = new Map<string, NFBuildAdapterResult>();
 
   for (const outFile of result.outputFiles ?? []) {
     const fileName = path.basename(outFile.path);
     const filePath = path.join(outdir, fileName);
     fs.writeFileSync(filePath, outFile.contents);
     const entry = entryByOutputName.get(fileName);
-    writtenFiles.push(entry ? { fileName: filePath, entry } : { fileName: filePath });
+    writtenFiles.set(filePath, entry ? { fileName: filePath, entry } : { fileName: filePath });
   }
 
-  return writtenFiles;
+  return [...writtenFiles.values()];
 }
 
 export interface AngularBuildAdapter extends NFBuildAdapter {
