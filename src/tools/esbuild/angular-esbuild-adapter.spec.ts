@@ -248,7 +248,7 @@ describe('createAngularBuildAdapter', () => {
       pluginDisposed: Promise.resolve(),
     } as never);
     const adapter = await createAngularBuildAdapter(ngBuilderOptions, context);
-    await adapter.setup('remote', {} as never);
+    await adapter.setup('remote', exposed);
 
     const result = await adapter.build('remote');
 
