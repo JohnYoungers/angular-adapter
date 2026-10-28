@@ -209,6 +209,39 @@ describe('createAngularBuildAdapter', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith('/out/logo.png', png);
   });
 
+  // #195: @angular/build 22.2.5 also bundles an empty external stylesheet, so a component with
+  // inline styles and an empty styleUrl emits two `app.component.css.map` outputs. Core rejects
+  // two results for one name once `entry` is set.
+  it('reports a path written twice once, with the last contents on disk', async () => {
+    const ctx = makeCtx();
+    const inlineMap = new TextEncoder().encode('{"sources":["inline"]}');
+    const emptyMap = new TextEncoder().encode('{"sources":[]}');
+    ctx.rebuild.mockResolvedValue({
+      outputFiles: [
+        { path: '/ws/app.component.css.map', contents: inlineMap },
+        { path: '/ws/app.component.css.map', contents: emptyMap },
+        { path: '/ws/dist/main.js', contents: new Uint8Array() },
+      ],
+    });
+    vi.mocked(createAngularEsbuildContext).mockResolvedValue({
+      ctx,
+      pluginDisposed: Promise.resolve(),
+    } as never);
+    const adapter = await createAngularBuildAdapter(ngBuilderOptions, context);
+    await adapter.setup('remote', {} as never);
+
+    const result = await adapter.build('remote');
+
+    expect(result).toEqual([
+      { fileName: '/out/app.component.css.map' },
+      { fileName: '/out/main.js' },
+    ]);
+    expect(vi.mocked(fs.writeFileSync).mock.calls.at(1)).toEqual([
+      '/out/app.component.css.map',
+      emptyMap,
+    ]);
+  });
+
   it('invalidates the bundler cache for modified files before rebuilding', async () => {
     const normalized = normalizedWith();
     vi.mocked(normalizeContextOptions).mockReturnValue(normalized as never);
