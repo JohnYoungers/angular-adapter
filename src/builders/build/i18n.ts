@@ -5,7 +5,6 @@ import { createRequire } from 'module';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import type { FederationInfo } from '@softarc/native-federation';
 
 type WorkspaceConfig = {
   i18n?: I18nConfig;
@@ -61,7 +60,7 @@ export function translateFederationArtifacts(
   i18n: I18nConfig,
   localize: boolean | string[],
   outputPath: string,
-  federationResult: FederationInfo,
+  federationFiles: string[],
   workspaceRoot: string
 ) {
   outputPath = path.resolve(workspaceRoot, outputPath);
@@ -88,14 +87,6 @@ export function translateFederationArtifacts(
   // {{LOCALE}} expands to the locale code, not its subPath, so translate into a staging folder first
   const stagingPath = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-i18n-'));
   const translationOutPath = path.join(stagingPath, '{{LOCALE}}');
-
-  const federationFiles = [
-    ...federationResult.shared.flatMap(s =>
-      'entries' in s ? Object.values(s.entries) : [s.outFileName]
-    ),
-    ...federationResult.exposes.map(e => e.outFileName),
-    ...Object.values(federationResult.chunks ?? {}).flat(),
-  ];
 
   const localePath = (locale: string) =>
     path.join(outputPath, getLocaleSubPath(i18n, locale));

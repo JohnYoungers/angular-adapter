@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import { logger } from '@softarc/native-federation/internal';
 import type { BuilderContext } from '@angular-devkit/architect';
-import type { FederationInfo } from '@softarc/native-federation';
 
 import {
   getI18nConfig,
@@ -34,11 +33,7 @@ const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
 const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined);
 const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
 
-const federationResult = {
-  shared: [{ outFileName: 'dep1.js' }],
-  exposes: [{ outFileName: 'cmp.js' }],
-  chunks: { c1: ['chunk1.js'] },
-} as unknown as FederationInfo;
+const federationFiles = ['dep1.js', 'cmp.js', 'chunk1.js'];
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -91,7 +86,7 @@ describe('translateFederationArtifacts', () => {
   });
 
   it('does nothing when no configured locale matches the requested ones', async () => {
-    translateFederationArtifacts(i18n, ['es'], 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(i18n, ['es'], 'dist/browser', federationFiles, '/ws');
 
     expect(execFileSync).not.toHaveBeenCalled();
     expect(fs.mkdirSync).not.toHaveBeenCalled();
@@ -99,7 +94,7 @@ describe('translateFederationArtifacts', () => {
   });
 
   it('filters to the intersection of requested and configured locales', async () => {
-    translateFederationArtifacts(i18n, ['de'], 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(i18n, ['de'], 'dist/browser', federationFiles, '/ws');
 
     const args = localizeArgs();
     const targets = args.slice(args.indexOf('--target-locales') + 1, args.indexOf('-l'));
@@ -107,7 +102,7 @@ describe('translateFederationArtifacts', () => {
   });
 
   it('builds the localize-translate command from the federation output files', async () => {
-    translateFederationArtifacts(i18n, true, 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(i18n, true, 'dist/browser', federationFiles, '/ws');
 
     const [file, args] = vi.mocked(execFileSync).mock.calls[0]!;
     // the CLI script is run with node, not through a shell
@@ -137,7 +132,7 @@ describe('translateFederationArtifacts', () => {
       .map(([from, to]) => [posix(String(from)), posix(String(to))]);
 
   it('stages the federation output files from the source locale folder', () => {
-    translateFederationArtifacts(i18n, true, 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(i18n, true, 'dist/browser', federationFiles, '/ws');
 
     expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringMatching(/\.input$/), {
       recursive: true,
@@ -149,32 +144,9 @@ describe('translateFederationArtifacts', () => {
     ]);
   });
 
-  it('collects dense shared entries when denseExternals is enabled', () => {
-    const denseResult = {
-      shared: [{ entries: { esm: 'dep1.js', legacy: 'dep1.legacy.js' } }],
-      exposes: [{ outFileName: 'cmp.js' }],
-      chunks: { c1: ['chunk1.js'] },
-    } as unknown as FederationInfo;
-
-    translateFederationArtifacts(i18n, true, 'dist/browser', denseResult, '/ws');
-
-    expect(stagedFiles().map(([from]) => from!.split('/').pop())).toEqual([
-      'dep1.js',
-      'dep1.legacy.js',
-      'cmp.js',
-      'chunk1.js',
-    ]);
-  });
-
   it('runs localize-translate once, however many files there are', () => {
     const manyFiles = Array.from({ length: 1000 }, (_, i) => `chunk-${i}-${'x'.repeat(40)}.js`);
-    const bigResult = {
-      shared: [],
-      exposes: [],
-      chunks: { c1: [...manyFiles, manyFiles[0]!] },
-    } as unknown as FederationInfo;
-
-    translateFederationArtifacts(i18n, true, 'dist/browser', bigResult, '/ws');
+    translateFederationArtifacts(i18n, true, 'dist/browser', [...manyFiles, manyFiles[0]!], '/ws');
 
     expect(execFileSync).toHaveBeenCalledTimes(1);
     expect(valueAfter(localizeArgs(), '-s')).toBe('**/*');
@@ -189,7 +161,7 @@ describe('translateFederationArtifacts', () => {
       locales: { de: 'm.de.xlf' },
     };
 
-    translateFederationArtifacts(objLocaleI18n, true, 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(objLocaleI18n, true, 'dist/browser', federationFiles, '/ws');
 
     expect(valueAfter(localizeArgs(), '-l')).toBe('en-US');
   });
@@ -198,14 +170,14 @@ describe('translateFederationArtifacts', () => {
 
   // outputPath.browser can be customised (or empty) in angular.json
   it('translates under the configured browser output folder instead of "browser"', () => {
-    translateFederationArtifacts(i18n, ['de'], 'dist/web', federationResult, '/ws');
+    translateFederationArtifacts(i18n, ['de'], 'dist/web', federationFiles, '/ws');
 
     expect(stagedFiles()[0]![0]).toBe('/ws/dist/web/en/dep1.js');
     expect(mkdirTargets()).toContain('/ws/dist/web/de');
   });
 
   it('writes the locale folders directly under the base when the browser folder is empty', () => {
-    translateFederationArtifacts(i18n, ['de'], 'dist', federationResult, '/ws');
+    translateFederationArtifacts(i18n, ['de'], 'dist', federationFiles, '/ws');
 
     expect(stagedFiles()[0]![0]).toBe('/ws/dist/en/dep1.js');
     expect(mkdirTargets()).toContain('/ws/dist/de');
@@ -217,7 +189,7 @@ describe('translateFederationArtifacts', () => {
       { locales: { de: 'm.de.xlf' } },
       true,
       'dist/browser',
-      federationResult,
+      federationFiles,
       '/ws'
     );
 
@@ -230,7 +202,7 @@ describe('translateFederationArtifacts', () => {
   });
 
   it('creates a dist folder and copies the remoteEntry for each target locale', async () => {
-    translateFederationArtifacts(i18n, true, 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(i18n, true, 'dist/browser', federationFiles, '/ws');
 
     const mkdirPaths = vi.mocked(fs.mkdirSync).mock.calls.map(c => String(c[0]));
     expect(mkdirPaths.some(p => p.endsWith('browser/de'))).toBe(true);
@@ -247,7 +219,7 @@ describe('translateFederationArtifacts', () => {
   });
 
   it('resolves output, binary and cwd against workspaceRoot', async () => {
-    translateFederationArtifacts(i18n, ['de'], 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(i18n, ['de'], 'dist/browser', federationFiles, '/ws');
 
     const [, args, opts] = vi.mocked(execFileSync).mock.calls[0]!;
     expect(posix(args![0])).toContain('/ws/node_modules/@angular/localize/');
@@ -266,7 +238,7 @@ describe('translateFederationArtifacts', () => {
       locales: { de: { translation: 'm.de.xlf', subPath: 'deutsch' }, fr: 'm.fr.xlf' },
     };
 
-    translateFederationArtifacts(subPathI18n, true, 'dist/browser', federationResult, '/ws');
+    translateFederationArtifacts(subPathI18n, true, 'dist/browser', federationFiles, '/ws');
 
     const args = localizeArgs();
     // localize-translate reads the staged files, which come from the source subPath, but writes per locale code
@@ -299,7 +271,7 @@ describe('translateFederationArtifacts', () => {
     });
 
     expect(() =>
-      translateFederationArtifacts(i18n, ['de'], 'dist/browser', federationResult, '/ws')
+      translateFederationArtifacts(i18n, ['de'], 'dist/browser', federationFiles, '/ws')
     ).toThrow('localize boom');
 
     expect(errorSpy).toHaveBeenCalledWith('localize boom');

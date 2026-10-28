@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { FederationInfo } from '@softarc/native-federation';
 
 import { translateFederationArtifacts, type I18nConfig } from './i18n.js';
 
@@ -44,22 +43,21 @@ describe('translateFederationArtifacts with the real localize-translate CLI', ()
     write(sourceFile('cmp.js'), 'export const t = $localize`:@@greeting:Hello`;');
     write(sourceFile('chunk.js'), 'export const c = $localize`:@@greeting:Hello`;');
     write(sourceFile('chunk.css'), 'a{}');
+    write(sourceFile('chunk.js.map'), '{"version":3}');
     // Angular's own output sits in the same folder and must be left alone
     write(sourceFile('main.js'), 'export const m = $localize`:@@greeting:Hello`;');
 
     const i18n: I18nConfig = { sourceLocale: 'en', locales: { de: translation } };
-    const federationResult = {
-      shared: [],
-      exposes: [{ outFileName: 'cmp.js' }],
-      chunks: { c1: ['chunk.js', 'chunk.css'] },
-    } as unknown as FederationInfo;
+    // core reports every file it wrote, chunks of non-dense bundles and source maps included
+    const federationFiles = ['cmp.js', 'chunk.js', 'chunk.css', 'chunk.js.map'];
 
-    translateFederationArtifacts(i18n, true, 'dist/browser', federationResult, workspaceRoot);
+    translateFederationArtifacts(i18n, true, 'dist/browser', federationFiles, workspaceRoot);
 
     const de = (name: string) => fs.readFileSync(path.join(browser, 'de', name), 'utf8');
     expect(de('cmp.js')).toContain('Hallo');
     expect(de('chunk.js')).toContain('Hallo');
     expect(de('chunk.css')).toBe('a{}');
+    expect(de('chunk.js.map')).toBe('{"version":3}');
     expect(fs.existsSync(path.join(browser, 'de', 'main.js'))).toBe(false);
   });
 
@@ -71,14 +69,8 @@ describe('translateFederationArtifacts with the real localize-translate CLI', ()
     write(path.join(browser, 'en', 'remoteEntry.json'), '{}');
 
     const i18n: I18nConfig = { sourceLocale: 'en', locales: { de: translation } };
-    const federationResult = {
-      shared: [],
-      exposes: [{ outFileName: 'missing.js' }],
-      chunks: {},
-    } as unknown as FederationInfo;
-
     expect(() =>
-      translateFederationArtifacts(i18n, true, 'dist/browser', federationResult, workspaceRoot)
+      translateFederationArtifacts(i18n, true, 'dist/browser', ['missing.js'], workspaceRoot)
     ).toThrow(/ENOENT/);
   });
 });
