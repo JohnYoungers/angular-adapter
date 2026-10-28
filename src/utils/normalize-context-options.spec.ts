@@ -11,7 +11,6 @@ describe('normalizeContextOptions', () => {
     tsConfigPath: 'tsconfig.json',
     mappedPaths: { foo: 'bar' },
     cache: { cachePath: '/cache' },
-    kind: 'exposed',
     hash: true,
     chunks: true,
     platform: 'node',
